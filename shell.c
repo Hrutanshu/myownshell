@@ -9,11 +9,27 @@
 #include<errno.h> 
 #define MAX 1000 //max string length
 #define MAXCOM 100 //max commands
-void sigintHandler(int sig_num) 
+void catch_suspend(int sig_num)//ctrl+z handler
+{
+    signal(SIGTSTP, catch_suspend);
+}
+void sigintHandler(int sig_num)//ctrl+c handler
 { 
+	char cur_dir[128];
+	char *user;
+	user = getlogin();
+	getcwd(cur_dir, sizeof(cur_dir)); //get current working directory
+	fprintf(stdout, "\n%s:%s",user , cur_dir);
+	fprintf(stdout, ">>");
     signal(SIGINT, sigintHandler);
     fflush(stdout);
-} 
+}
+void s_sigintHandler(int sig_num) //ctrl+c handler
+{ 
+	write(1, "\n", 1);
+    signal(SIGINT, s_sigintHandler);
+    fflush(stdout);
+}
 void seperatecommandnarguments(char* str, char** str2) {
 	int i, j = 0, k = 0;
 	char *token;
@@ -54,6 +70,7 @@ void seperatecommandnarguments(char* str, char** str2) {
 		}
 	}
 	if(j) {
+		token[j] = '\0';
 		j = 0;
 		str2[k] = (char *)malloc(strlen(token));
 		strcpy(str2[k++], token);
@@ -109,16 +126,18 @@ int cdnexit(char** check) {
 	return 0;
 }
 int main() {
-	
-	int flag = 0, i = 0, n, noofpipe = 0, j, k;
+	int flag = 0, i = 0, n, noofpipe = 0, j, k, status;
 	char str[MAX], *strwopipe[MAXCOM], *token, *token1, ch;
 	printf("\033[H\033[J");
 	char cur_dir[1024];
 	while(1) {
 		signal(SIGINT, sigintHandler);
+		signal(SIGTSTP, catch_suspend);
 		noofpipe = 0;
+		char *user;
+		user = getlogin();
 		getcwd(cur_dir, sizeof(cur_dir)); //get current working directory
-		printf("Dir: %s", cur_dir);
+		printf("%s:%s", user, cur_dir);
 		printf(">>");
 		i = 0;
 		ch = getchar();
@@ -126,10 +145,12 @@ int main() {
 			str[i++] = ch;
 			ch = getchar();
 		}
+
 		str[i] = '\0';
 		if(strlen(str) == 0) {
 			continue;
 		}
+		signal(SIGTSTP, catch_suspend);
 		nofpipes(str, &noofpipe);//get the number of pipes
 		if(noofpipe) {
 			char *partsofpipe[noofpipe + 1];
@@ -158,6 +179,7 @@ int main() {
 					printf("\nCould not fork\n"); 
 					return 0;
 				}
+				signal(SIGINT, s_sigintHandler);
 				if (p1 == 0) { 
 					dup2(p2, 0);
 					if(j != noofpipe)
@@ -218,7 +240,7 @@ int main() {
 					exit(1);
 				}
 				else {
-					wait(NULL);
+					waitpid(p1, &status, WUNTRACED); 
 					close(pipefd[1]);
 					p2 = pipefd[0];
 				}
@@ -232,7 +254,8 @@ int main() {
 				continue;
 			}
 			else {
-				int pid = fork(); 
+				int pid = fork();
+				signal(SIGINT, s_sigintHandler);
 				if (pid == -1) { 
 					printf("\nFailed forking child..\n"); 
 				} 
@@ -290,8 +313,8 @@ int main() {
 						close(fdop);
 					exit(0); 
 				}
-				else { 
-					wait(NULL); 
+				else {
+					waitpid(pid, &status, WUNTRACED); 
 				} 
 			}
 		}
